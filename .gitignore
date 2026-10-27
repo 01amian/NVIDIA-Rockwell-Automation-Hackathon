@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Data and Models (Keep large assets out of git as requested by organizers)
+data/
+datasets/
+models/*.pth
+models/*.pt
+models/*.onnx
+runs/
+checkpoints/
+output/
+review-*/
+sample_run/
+sample_run_122/
+test_scenes/
+test_runs/
+
+# OS & IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

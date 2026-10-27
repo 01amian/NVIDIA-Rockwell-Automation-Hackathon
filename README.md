@@ -1,57 +1,125 @@
 # Rockwell Automation + NVIDIA Innovation Lab · Fall 2026
+## Final Vial Inspection — Automated Industrial Vision Pipeline
 
-This is your team's repository for the four-week physical AI hackathon run by Rockwell Automation, NVIDIA, the MSOE AI Club and UWM's Connected Systems Institute. Build everything here. Sponsors can follow your work as it progresses, and your final submission links straight to this repository.
+**Team Repository:** Sana and Saja Elsharef's Team  
+**Challenge Track:** Dataset 1: Final Vial Inspection  
+**Partners:** Rockwell Automation, NVIDIA, MSOE AI Club, UWM Connected Systems Institute (CSI)
 
-**Full event guide** (datasets, compute, rules, judging, prizes): <https://msoe-maic.com/library/?article=Rockwell-NVIDIA-Fall-2026>
-**Your team workspace** (team, repository access, submissions): <https://dashboard.all-ai-network.org/j/L36HEH>
-**Questions:** [join the hackathon Slack](https://join.slack.com/t/rockwellnvidi-wq82211/shared_invite/zt-4bp05nsn9-UW3afFtM9wjzWtZiQoJBHg) and ask in the channel that matches your question. The event guide's "Getting help" section says who to ping for what.
+---
 
-## Key dates
+### 1. Problem Overview
+On high-mix, low-volume (HMLV) pharmaceutical filling lines, vials are picked and placed into two fixtures at the final packaging station:
+- **Good Tray (`G01`–`G30`)**: Holds acceptable, non-defective product.
+- **Scrap Tray (`S01`–`S30`)**: Holds rejected or defect-suspected vials.
 
-| When | What |
-|---|---|
-| Thu Oct 8, 4:00–6:00 PM | Kickoff at Rockwell Automation HQ, 1201 S 2nd St, Milwaukee |
-| **Wed Oct 14, 11:59 PM CT** | **Team plan due:** [submit it here](https://dashboard.all-ai-network.org/s/V28NHK) |
-| **Sun Nov 1, 11:59 PM CT** | **Final submission due:** [submit it here](https://dashboard.all-ai-network.org/s/V28NHK) |
-| Thu Nov 5, 5:00–8:00 PM | Finals at MSOE Diercks Hall: live presentations and prizes |
+An overhead 1920×1080 camera inspects both fixtures simultaneously. In industrial automation, **a missed defect (false negative) is catastrophic**, while a false alarm is a manageable operational cost.
 
-## First week
+Our pipeline automatically monitors all 60 fixture apertures to:
+1. **Detect 5 target conditions per slot**:
+   - `pass`: Visible cap and vial body acceptable.
+   - `missing_cap`: Vial present, but cap is missing / open mouth.
+   - `crooked_cap`: Cap is tilted or unseated relative to the vial mouth.
+   - `damaged_vial`: Vial body crushed, broken, or deformed.
+   - `no_vial`: Empty fixture aperture.
+2. **Apply Factory Decision Semantics (`rules.py`)**:
+   - **Good Tray**: Evaluates `complete_order`, `missing_vial` (internal skipped placements), and `bad_misclassified_as_good` (defects entering good stream).
+   - **Scrap Tray**: Evaluates `missing_vial`, `full`, and `good_misclassified_as_bad` (misrouted good product).
+3. **Produce Visual & Structured Inspection Reports**:
+   - Generates compliant `inspection_summary.json` and annotated visual inspection overlays with color-coded bounding rings.
 
-- [ ] Everyone on the team has an ALL AI Network account and has joined this team in the [workspace](https://dashboard.all-ai-network.org/j/L36HEH).
-- [ ] Everyone has connected GitHub and accepted the repository invitation (check your GitHub email, or open the workspace and press the check button).
-- [ ] Pick your dataset. We recommend one strong solution around a single dataset.
-- [ ] Download the data and make sure everyone who needs it can open it.
-- [ ] Read the compute guide and decide what you'll need.
-- [ ] Join Slack, open `#hackathon-announcements`, and find your dataset's channel.
-- [ ] Submit the [team plan](https://dashboard.all-ai-network.org/s/V28NHK) by Wednesday, October 14. It's a short resource request, not a graded paper, and any teammate can update it before the deadline.
+---
 
-## The three datasets
+### 2. Architecture
 
-1. **[Final Vial Inspection](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Vial-Inspection):** find missing caps, crooked caps, damaged vials and unexpected empty positions after the robot fills a fixture.
-2. **[Fluid Mixing Station 3](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Fluid-Mixing):** use synchronized camera views to detect fill and color problems caused by recipes and fluid carryover.
-3. **[Grasping and Sorting](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Grasping-Sorting):** use a digital twin and multiple cameras to make a standalone FANUC arm grasp and sort objects more reliably.
-
-## Read before your team plan
-
-- **[Compute: Brev, DGX Spark and build.nvidia.com](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Compute).** Brev credits are spent whenever an instance is running, so stop instances you aren't using.
-- **[Collect and test your own data](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Data-Collection):** visits, extra data, digital twins, and booking a supervised test on the real equipment.
-- **[Tools and resources](https://msoe-maic.com/library?article=Rockwell-NVIDIA-Fall-2026-Resources):** AI coding tools, vision-language models, NVIDIA Cosmos and more. Start with a simple baseline.
-
-## Final submission (Sun Nov 1)
-
-- A video of about five minutes
-- A one-page project summary
-- A link to this repository
-- References and credits for data, models, code and tools
-
-## Working in this repository
-
-```bash
-git clone <this repository's URL from the green "Code" button>
+```
+                 1920x1080 Fixture Scene
+                            │
+                            ▼
+               ┌─────────────────────────┐
+               │    TrayGeometry Engine  │  (Calibration & Alignment)
+               └────────────┬────────────┘
+                            │ 60 Crops (G01-G30, S01-S30)
+                            ▼
+               ┌─────────────────────────┐
+               │  Defect Vision Engine   │  (Occupancy, Cap Tilt, Damage)
+               └────────────┬────────────┘
+                            │ Slot Predictions + Confidences
+                            ▼
+               ┌─────────────────────────┐
+               │  Factory Rules Engine   │  (Good & Scrap Tray Decisions)
+               └────────────┬────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+   Structured JSON Report        Annotated Visual Overlay
 ```
 
-- Commit early and push often. Mentors and judges see what's here.
-- **Don't commit large datasets or model weights.** Keep them out with `.gitignore` and note in this README where to download them.
-- Before the finals, replace this README with your project: the problem, your approach, results, how to run it, and credits.
+---
 
-**Can't push or see this repository?** Open the [team workspace](https://dashboard.all-ai-network.org/j/L36HEH) and press the GitHub check button. If it still doesn't work, ping Brett Storoe in `#hackathon-general` on Slack.
+### 3. Installation & Quick Start
+
+#### Requirements
+- Python 3.10+ (macOS, Linux, or Windows)
+- Dependencies: `numpy`, `Pillow`, `opencv-python-headless`, `torch`, `torchvision`, `scikit-learn`, `pytest`
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd <repo-folder>
+
+# Set up virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+#### Run Automated Inspection
+Inspect any fixture image with one command:
+```bash
+python inspect_vials.py --image /path/to/tray_000001.jpg --output-dir results/
+```
+
+This generates:
+- `results/inspection_summary.json`: Detailed machine-readable classifications and findings.
+- `results/annotated_tray_000001.jpg`: Visual image with color-coded rings for quick operator verification.
+
+#### Run Test Suite
+```bash
+pytest tests/ -v
+```
+
+---
+
+### 4. Repository Structure
+```
+├── README.md                  # Project documentation & team guide
+├── calibration.json           # 1920x1080 camera calibration & grid offsets
+├── inspect_vials.py           # CLI entry point for full inspection of any scene
+├── generate_test_scene.py     # CLI to inject synthetic defects into fixture scenes
+├── evaluate_run.py            # CLI benchmark scoring predictions against ground truth
+├── test_vial_system.py        # All-in-one test cycle (Generate -> Inspect -> Benchmark -> Browser Review)
+├── requirements.txt           # Python dependencies
+├── src/
+│   ├── classifier.py          # Defect & occupancy computer vision classifier
+│   ├── evaluate.py            # Hackathon evaluation metrics (penalty scores)
+│   ├── geometry.py            # Coordinate transformations & crop extraction
+│   ├── pipeline.py            # End-to-end automated inspection pipeline
+│   ├── rules.py               # Factory decision & tray-level semantics
+│   ├── synthetic_generator.py # Photorealistic defect injector for local testing
+│   └── train_torch.py         # PyTorch MobileNetV3 deep learning training script
+└── tests/
+    └── test_inspection.py     # Unit & integration tests
+```
+
+---
+
+### 5. Training with the Digital Twin (Brev / Isaac Sim)
+Per the competition guidelines, models should be trained on synthetic data rendered from the **Isaac Sim Digital Twin** (`csi_digital_twin_v1`):
+1. **Generate synthetic renders**: Render tray scenes or slot crops with varying lighting, vial tilt, and defects using Isaac Sim.
+2. **Train Deep Classifier**:
+   ```bash
+   python -m src.train_torch --data-dir path/to/synthetic_crops/ --epochs 20 --output models/vial_model.pth
+   ```
+   The training script automatically applies class weighting to heavily penalize defect escapes (false negatives).
