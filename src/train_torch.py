@@ -68,7 +68,9 @@ def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, ba
     transform_train = transforms.Compose([
         transforms.Resize((64, 64)),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.1, contrast=0.1),
+        transforms.RandomRotation(degrees=15),
+        transforms.RandomAffine(degrees=10, translate=(0.04, 0.04), scale=(0.95, 1.05)),
+        transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.1),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
@@ -95,8 +97,9 @@ def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, ba
     model = build_model(num_classes=len(CLASSES), pretrained=True).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
 
-    print(f"[*] Starting balanced training on {len(dataset)} samples using {device}...")
+    print(f"[*] Starting robust balanced training on {len(dataset)} samples using {device}...")
     model.train()
     for epoch in range(epochs):
         total_loss = 0.0
@@ -115,9 +118,11 @@ def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, ba
             correct += (preds == labels).sum().item()
             total += len(labels)
 
+        scheduler.step()
         acc = correct / total if total > 0 else 0
         avg_loss = total_loss / total if total > 0 else 0
-        print(f"  Epoch {epoch+1:02d}/{epochs:02d} - Loss: {avg_loss:.4f} - Accuracy: {acc*100:.2f}%")
+        current_lr = scheduler.get_last_lr()[0]
+        print(f"  Epoch {epoch+1:02d}/{epochs:02d} - Loss: {avg_loss:.4f} - Accuracy: {acc*100:.2f}% (lr: {current_lr:.2e})")
 
     Path(output_model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), output_model_path)
