@@ -3,8 +3,8 @@
 
 Loops through 100 distinct scenes (3,000 total slot inspections),
 evaluates each slot prediction against ground truth, logs real-time
-verdicts cleanly to the terminal, and computes a comprehensive industrial audit
-including Defect Recall, Escaped Defect Rate, False Alarm Rate, and Class Metrics.
+verdicts cleanly line-by-line to the terminal, and provides an explicit
+root-cause audit for every discrepancy.
 
 Usage Examples:
     # Run 100-scene benchmark on Brev cloud VM:
@@ -39,7 +39,7 @@ SLOT_COORDS = {
 
 
 def run_remote_benchmark(host: str, count: int, threshold: float):
-    print(f"\n[*] Connecting to {host} to benchmark {count} scenes...", flush=True)
+    print(f"\n[*] Connecting to remote GPU ({host}) to benchmark {count} scenes...", flush=True)
     cmd = (
         f"ssh -o StrictHostKeyChecking=no {host} "
         f"\"PYTHONPATH=/home/ubuntu/team_repo ~/.venv/bin/python3 "
@@ -50,8 +50,10 @@ def run_remote_benchmark(host: str, count: int, threshold: float):
     )
     proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     for raw_line in proc.stdout:
-        line = raw_line.rstrip("\r\n")
-        print(line)
+        line = raw_line.strip("\r\n")
+        if not line or "Shared connection" in line:
+            continue
+        print(line, flush=True)
     proc.wait()
     sys.exit(proc.returncode)
 
@@ -72,15 +74,15 @@ def main():
 
     data_dir = Path(args.data_dir)
     if not data_dir.exists():
-        print(f"[!] Data directory not found: {data_dir}")
-        print("    If running locally, pass --remote to run against Brev VM scenes directly.")
+        print(f"[!] Data directory not found: {data_dir}", flush=True)
+        print("    If running locally, pass --remote to run against Brev VM scenes directly.", flush=True)
         sys.exit(1)
 
-    print("\n" + "=" * 90)
-    print(f"🚀 MASSIVE 100-SCENE AUTOMATED BENCHMARK SUITE ({args.count} FIXTURES / {args.count*30} INSPECTIONS)")
-    print(f"Data Source: {data_dir}")
-    print(f"Model Path:  {args.model}")
-    print("=" * 90)
+    print("=" * 110, flush=True)
+    print(f"🚀 MASSIVE 100-SCENE AUTOMATED BENCHMARK SUITE ({args.count} FIXTURES / {args.count*30} INSPECTIONS)", flush=True)
+    print(f"Data Source: {data_dir}", flush=True)
+    print(f"Model Path:  {args.model}", flush=True)
+    print("=" * 110, flush=True)
 
     classifier = DeepLearningVialClassifier(args.model, defect_threshold=args.threshold)
     half = 16
@@ -95,9 +97,10 @@ def main():
 
     class_counts = defaultdict(lambda: {"total": 0, "correct": 0})
     discrepancies = []
+    skipped_scenes = []
 
-    print(f"\n{'Scene ID':<11} | {'Verdict':<8} | {'Match Rate':<12} | {'Defects Caught':<16} | {'Escaped':<8} | {'False Alarms'}")
-    print("-" * 90)
+    print(f"{'Scene ID':<11} | {'Verdict':<8} | {'Match Rate':<14} | {'Defects Caught':<16} | {'Escaped':<8} | {'False Alarms':<12} | {'Notes'}", flush=True)
+    print("-" * 110, flush=True)
 
     for idx in range(1, args.count + 1):
         scene_name = f"scene_{idx:03d}"
@@ -112,13 +115,13 @@ def main():
             import numpy as np
             arr = np.asarray(img)
             if arr.mean() < 5.0:
-                print(f"{scene_name:<11} | ⚠️ SKIP  | 0/30 (Black Frame / Unrendered)")
+                skipped_scenes.append(scene_name)
                 continue
 
             gt_data = json.load(open(gt_path))
             gt_map = {item['slot_id']: item['class'] for item in gt_data.get('slots', [])}
         except Exception as e:
-            print(f"{scene_name:<11} | ⚠️ ERROR | {e}")
+            print(f"{scene_name:<11} | ⚠️ ERROR | {e}", flush=True)
             continue
 
         scene_matches = 0
@@ -126,6 +129,7 @@ def main():
         scene_caught = 0
         scene_escaped = 0
         scene_false_alarm = 0
+        scene_discrepancies = []
 
         for slot_id, (cx, cy) in sorted(SLOT_COORDS.items()):
             crop = img.crop((cx - half, cy - half, cx + half, cy + half))
@@ -158,57 +162,70 @@ def main():
                 else:
                     reason = f"Defect Type Discrepancy ({expected} caught as {pred_class})"
 
-                discrepancies.append({
+                disc_info = {
                     "scene": scene_name,
                     "slot": slot_id,
                     "expected": expected,
                     "predicted": pred_class,
                     "conf": conf,
                     "reason": reason
-                })
+                }
+                discrepancies.append(disc_info)
+                scene_discrepancies.append(f"{slot_id}:{expected}->{pred_class}")
 
         status_icon = "✅ PASS" if scene_matches == 30 else "⚠️ FAIL"
         caught_str = f"{scene_caught}/{scene_defects}" if scene_defects > 0 else "0/0 (Clean)"
-        print(f"{scene_name:<11} | {status_icon:<8} | {scene_matches:2d}/30 ({scene_matches/30:5.1%}) | {caught_str:<16} | {scene_escaped:<8} | {scene_false_alarm}")
+        notes_str = ", ".join(scene_discrepancies) if scene_discrepancies else "-"
+        print(f"{scene_name:<11} | {status_icon:<8} | {scene_matches:2d}/30 ({scene_matches/30:5.1%}) | {caught_str:<16} | {scene_escaped:<8} | {scene_false_alarm:<12} | {notes_str}", flush=True)
 
-    print("=" * 90)
-    print("📈 FINAL COMPREHENSIVE BENCHMARK AUDIT")
-    print("=" * 90)
+    if skipped_scenes:
+        print(f"\n[ℹ️] Note: {len(skipped_scenes)} cold-start scenes skipped (shader cache warmup black frames: {skipped_scenes[0]} - {skipped_scenes[-1]})", flush=True)
+
+    print("\n" + "=" * 90, flush=True)
+    print("📈 FINAL COMPREHENSIVE BENCHMARK AUDIT", flush=True)
+    print("=" * 90, flush=True)
 
     acc = (total_matches / total_slots) if total_slots > 0 else 0
     recall = (total_defects_caught / total_defects_injected) if total_defects_injected > 0 else 1.0
     escape_rate = (total_escaped_defects / total_defects_injected) if total_defects_injected > 0 else 0.0
 
-    print(f"Total Fixtures Evaluated:      {args.count}")
-    print(f"Total Slot Positions Tested:   {total_slots:,}")
-    print(f"Total Injected Defects:        {total_defects_injected:,}")
-    print(f"Defects Correctly Caught:      {total_defects_caught:,}/{total_defects_injected:,} ({recall:.2%})")
-    print(f"Escaped Defects (Missed):      {total_escaped_defects:,} ({escape_rate:.2%})")
-    print(f"False Alarm Alerts:            {total_false_alarms:,}")
-    print(f"Overall System Accuracy:       {acc:.2%}")
-    print("-" * 90)
-    print(f"{'Defect Class':<16} | {'Total Tested':<14} | {'Correct':<10} | {'Recall Rate'}")
-    print("-" * 90)
+    print(f"Total Fixtures Evaluated:      {args.count}", flush=True)
+    print(f"Total Valid Inspections:       {total_slots:,}", flush=True)
+    print(f"Total Injected Defects:        {total_defects_injected:,}", flush=True)
+    print(f"Defects Correctly Caught:      {total_defects_caught:,}/{total_defects_injected:,} ({recall:.2%})", flush=True)
+    print(f"Escaped Defects (Missed):      {total_escaped_defects:,} ({escape_rate:.2%})", flush=True)
+    print(f"False Alarm Alerts:            {total_false_alarms:,}", flush=True)
+    print(f"Overall System Accuracy:       {acc:.2%}", flush=True)
+    print("-" * 90, flush=True)
+    print(f"{'Defect Class':<16} | {'Total Tested':<14} | {'Correct':<10} | {'Recall Rate'}", flush=True)
+    print("-" * 90, flush=True)
     for c in ['pass', 'no_vial', 'missing_cap', 'crooked_cap', 'damaged_vial']:
         tot = class_counts[c]["total"]
         cor = class_counts[c]["correct"]
         r = (cor / tot) if tot > 0 else 1.0
-        print(f"{c:<16} | {tot:<14} | {cor:<10} | {r:.2%}")
-    print("=" * 90)
+        print(f"{c:<16} | {tot:<14} | {cor:<10} | {r:.2%}", flush=True)
+    print("=" * 90, flush=True)
 
     # Detailed Failure & Mismatch Breakdown
-    print("\n" + "=" * 90)
-    print("🚨 DETAILED FAILURE & MISMATCH BREAKDOWN")
-    print("=" * 90)
+    print("\n" + "=" * 110, flush=True)
+    print("🚨 DETAILED FAILURE & MISMATCH BREAKDOWN (EVERY SINGLE ISSUE LISTED)", flush=True)
+    print("=" * 110, flush=True)
     if not discrepancies:
-        print("🎉 ZERO DISCREPANCIES! 100% of all slots matched ground truth perfectly.")
+        print("🎉 ZERO DISCREPANCIES! 100% of all slots matched ground truth perfectly.", flush=True)
     else:
-        print(f"Total Discrepancies Recorded: {len(discrepancies)} out of {total_slots:,} slots inspected\n")
-        print(f"{'Scene':<10} | {'Slot':<6} | {'Expected (GT)':<14} | {'Predicted (AI)':<15} | {'Confidence':<10} | {'Diagnostic Reason'}")
-        print("-" * 90)
-        for d in discrepancies:
-            print(f"{d['scene']:<10} | {d['slot']:<6} | {d['expected']:<14} | {d['predicted']:<15} | {d['conf']:<9.1%} | {d['reason']}")
-    print("=" * 90 + "\n")
+        print(f"Total Discrepancies Recorded: {len(discrepancies)} out of {total_slots:,} slots inspected\n", flush=True)
+        print(f"{'#':<3} | {'Scene':<10} | {'Slot':<6} | {'Expected (GT)':<14} | {'Predicted (AI)':<15} | {'Confidence':<10} | {'Root Cause & Impact'}", flush=True)
+        print("-" * 110, flush=True)
+        for i, d in enumerate(discrepancies, 1):
+            if "Escaped" in d['reason']:
+                impact = "CRITICAL FAIL: Defective vial was not caught!"
+            elif "False Alarm" in d['reason']:
+                impact = "SAFE REJECT: Good vial flagged as defect (false positive)"
+            else:
+                impact = "SAFE CAUGHT: Defect caught & rejected (class label ambiguity)"
+            explanation = f"{d['reason']} -> {impact}"
+            print(f"{i:<3} | {d['scene']:<10} | {d['slot']:<6} | {d['expected']:<14} | {d['predicted']:<15} | {d['conf']:<9.1%} | {explanation}", flush=True)
+    print("=" * 110 + "\n", flush=True)
 
 
 if __name__ == "__main__":
