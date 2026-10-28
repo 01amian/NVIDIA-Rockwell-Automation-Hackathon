@@ -13,17 +13,34 @@ import numpy as np
 from .rules import CLASSES, DEFECTS
 
 
+def _normalize_slots(data: Any) -> Dict[str, str]:
+    if isinstance(data, dict):
+        if 'slots' in data:
+            data = data['slots']
+        else:
+            return {k: v for k, v in data.items() if isinstance(v, str)}
+    mapping = {}
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                s_id = item.get('id') or item.get('slot_id')
+                s_cls = item.get('class') or item.get('classification')
+                if s_id is not None:
+                    mapping[str(s_id)] = s_cls
+    return mapping
+
+
 def evaluate_predictions(
-    ground_truth_slots: List[Dict[str, Any]],
-    predicted_slots: List[Dict[str, Any]],
+    ground_truth_slots: Any,
+    predicted_slots: Any,
     missed_defect_weight: float = 10.0,
     false_alarm_weight: float = 1.0
 ) -> Dict[str, Any]:
     """
     Evaluate predicted slots against confirmed ground truth slots.
     """
-    gt_map = {s['id']: s['class'] for s in ground_truth_slots}
-    pred_map = {s['id']: s['class'] for s in predicted_slots}
+    gt_map = _normalize_slots(ground_truth_slots)
+    pred_map = _normalize_slots(predicted_slots)
 
     tp_defects = 0
     fn_defects = 0  # ESCAPED DEFECT: Ground truth is defect, predicted as pass or no_vial

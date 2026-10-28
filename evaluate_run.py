@@ -29,12 +29,9 @@ def main():
     with open(args.predictions, 'r', encoding='utf-8') as f:
         pred_data = json.load(f)
 
-    gt_slots = gt_data.get('slots', [])
-    pred_slots = pred_data.get('slots', [])
-
     report = evaluate_predictions(
-        gt_slots,
-        pred_slots,
+        gt_data,
+        pred_data,
         missed_defect_weight=args.missed_penalty,
         false_alarm_weight=args.false_alarm_penalty
     )

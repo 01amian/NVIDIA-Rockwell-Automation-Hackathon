@@ -64,11 +64,11 @@ def build_model(num_classes=5, pretrained=True):
     return model
 
 
-def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, batch_size=16, lr=1e-3):
+def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, batch_size=32, lr=3e-4):
     transform_train = transforms.Compose([
-        transforms.Resize((128, 128)),
+        transforms.Resize((64, 64)),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
@@ -78,21 +78,25 @@ def train(data_dir, output_model_path="models/vial_mobilenet.pth", epochs=15, ba
         print(f"[!] No valid samples found in {data_dir}. Ensure data folder exists.")
         return
 
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    # Compute balanced sample weights to prevent majority class collapse
+    import numpy as np
+    targets = [label for _, label in dataset.samples]
+    class_counts = np.bincount(targets, minlength=len(CLASSES))
+    print(f"[*] Dataset class distribution: {dict(zip(CLASSES, class_counts))}")
+    class_weights = 1.0 / np.maximum(class_counts, 1)
+    sample_weights = [class_weights[t] for t in targets]
+    sampler = torch.utils.data.WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
+
+    loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available():
+        torch.backends.cudnn.enabled = False
 
     model = build_model(num_classes=len(CLASSES), pretrained=True).to(device)
-    
-    # Class weights to penalize missed defects much more heavily
-    weights = torch.ones(len(CLASSES)).to(device)
-    # Give defects higher loss weight
-    weights[1] = 5.0 # missing_cap
-    weights[2] = 5.0 # crooked_cap
-    weights[3] = 5.0 # damaged_vial
-    criterion = nn.CrossEntropyLoss(weight=weights)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    print(f"[*] Starting training on {len(dataset)} samples using {device}...")
+    print(f"[*] Starting balanced training on {len(dataset)} samples using {device}...")
     model.train()
     for epoch in range(epochs):
         total_loss = 0.0

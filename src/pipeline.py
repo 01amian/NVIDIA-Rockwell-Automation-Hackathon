@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from .geometry import TrayGeometry
-from .classifier import BaselineVialClassifier
+from .classifier import BaselineVialClassifier, DeepLearningVialClassifier
 from .rules import summarize, CLASSES, DEFECTS
 
 
@@ -31,7 +31,7 @@ COLORS = {
 class VialInspectionPipeline:
     """Full industrial automated inspection pipeline for vial fixtures."""
 
-    def __init__(self, calibration_path: Optional[str] = None):
+    def __init__(self, calibration_path: Optional[str] = None, model_path: Optional[str] = None):
         if calibration_path is None:
             # Look in parent or local folder
             candidate = Path(__file__).resolve().parent.parent / "calibration.json"
@@ -40,7 +40,22 @@ class VialInspectionPipeline:
             calibration_path = str(candidate)
 
         self.geometry = TrayGeometry(calibration_path)
-        self.classifier = BaselineVialClassifier()
+
+        # Auto-detect trained PyTorch MobileNetV3 model
+        if model_path is None:
+            candidate_model = Path(__file__).resolve().parent.parent / "models" / "vial_mobilenet.pth"
+            if candidate_model.exists():
+                model_path = str(candidate_model)
+
+        if model_path and Path(model_path).exists():
+            try:
+                self.classifier = DeepLearningVialClassifier(model_path)
+                print(f"[+] Loaded deep learning model: {model_path}")
+            except Exception as e:
+                print(f"[!] Warning loading deep learning model: {e}. Falling back to baseline.")
+                self.classifier = BaselineVialClassifier()
+        else:
+            self.classifier = BaselineVialClassifier()
 
     def inspect_image(
         self,

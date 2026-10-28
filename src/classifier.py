@@ -95,3 +95,55 @@ class BaselineVialClassifier:
 
         # Default: Passing vial
         return 'pass', 0.95, features
+
+
+class DeepLearningVialClassifier:
+    """MobileNetV3 deep learning classifier trained on digital twin crops."""
+
+    def __init__(self, model_path: str = "models/vial_mobilenet.pth", device: str = None, defect_threshold: float = 0.70):
+        import torch
+        from torchvision import transforms, models
+        from .rules import CLASSES
+
+        self.classes = CLASSES
+        self.defect_threshold = defect_threshold
+        self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
+        if torch.cuda.is_available():
+            torch.backends.cudnn.enabled = False
+
+        self.model = models.mobilenet_v3_small(weights=None)
+        in_features = self.model.classifier[3].in_features
+        self.model.classifier[3] = torch.nn.Linear(in_features, len(self.classes))
+
+        state_dict = torch.load(model_path, map_location=self.device)
+        self.model.load_state_dict(state_dict)
+        self.model.to(self.device)
+        self.model.eval()
+
+        self.transform = transforms.Compose([
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+    def classify_crop(self, crop_pil: Image.Image, slot_info: Dict[str, Any]) -> Tuple[str, float, Dict[str, Any]]:
+        import torch
+        tensor = self.transform(crop_pil.convert('RGB')).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            outputs = self.model(tensor)
+            probs = torch.softmax(outputs, dim=1)[0]
+            pred_idx = int(torch.argmax(probs))
+            conf = float(probs[pred_idx])
+
+        pred_class = self.classes[pred_idx]
+        raw_pred = pred_class
+        if pred_class != 'pass' and conf < self.defect_threshold:
+            pred_class = 'pass'
+
+        features = {
+            'model': 'MobileNetV3',
+            'raw_prediction': raw_pred,
+            'confidence': round(conf, 4),
+            'probabilities': {self.classes[i]: round(float(probs[i]), 4) for i in range(len(self.classes))}
+        }
+        return pred_class, conf, features
